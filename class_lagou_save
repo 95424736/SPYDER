@@ -1,0 +1,100 @@
+'''
+用selenium 的方法抓取，并利用mysql、mongo保存拉勾网的职位信息
+'''
+import time
+import urllib.parse as up
+from selenium import webdriver
+import pymysql
+import pymongo
+
+class lagou_spider(object):
+    def __init__(self):
+        #初始化数据库对象
+        self.mysql_db = pymysql.connect('127.0.0.1','root','123456','spider',charset='utf8')
+        self.cursor = self.mysql_db.cursor()
+        CREATE_TABLES = "create table if not exists lagou_spyder02(position varchar(64),place varchar(128),money varchar(128),limitt varchar(128),company_name varchar(128),company_kind varchar(128))charset utf8"
+        self.cursor.execute(CREATE_TABLES)
+        self.conn = pymongo.MongoClient('127.0.0.1',27017)
+        self.mongo_db = self.conn['spyder']
+        self.myset = self.mongo_db['lagou_spider_01']
+    #保存数据
+    def save(self,DICT):
+        #存入mongo数据库
+        self.myset.insert(DICT)
+        #存入mysql数据库
+        msg = tuple(DICT.values())[-2::-1]
+        INSERT_VALUE = "insert into lagou_spyder02 values('%s','%s','%s','%s','%s','%s')" %msg
+        self.cursor.execute(INSERT_VALUE)
+        self.mysql_db.commit()
+
+    #解析获取页面信息
+    def parseHtml(self,driver):
+        # n用来记录打印的页数
+        n = 1
+        # 循环打印每页内容
+        while True:
+            html = driver.find_elements_by_xpath("//div[contains(@class,'position')]/ul/li")
+            for i in html:
+                i = i.text.split('\n')
+                # 用字典储存岗位信息
+                DITC = {}
+                DITC['职位'] = str(i[0])
+                DITC['地点'] = str(i[1])
+                DITC['工资'] = str(i[3].split(' ')[0])
+                DITC['要求'] = str(' '.join(i[3].split(' ')[1:]))
+                DITC['名称'] = str(i[4])
+                DITC['公司类型'] = str(i[5])
+                #将岗位信息传给数据处理函数
+                self.save(DITC)
+            print('第%d页打印成功' % n)
+            n += 1
+            # 若找的到“无下一页”则打印完成，循环结束
+            if not driver.page_source.find("pager_next pager_next_disabled") == -1:
+                print('打印完成')
+                break
+            # 若找不到“无下一页”则点击“下一页”继续爬取
+            next_page = driver.find_element_by_xpath("//span[@class='pager_next ']")
+            next_page.click()
+            time.sleep(3)
+
+    #获取页面
+    def getHtml(self,url_choice):
+        # 是否设置chrome为无头浏览器
+        # chrome_options = webdriver.ChromeOptions()
+        # chrome_options.add_argument('--headless')
+        # driver = webdriver.Chrome(chrome_options=chrome_options)
+
+        # 创建浏览器对象
+        driver = webdriver.Chrome()
+        # 登陆的url
+        # url_login = "https://passport.lagou.com/login/login.html"
+        # 输入用户名和密码并登录(会输入验证码)
+        # driver.get(url_login)
+        # time.sleep(1)
+        # driver.find_element_by_xpath("//input[@class='input input_white']").send_keys('xxxx')
+        # driver.find_element_by_xpath("//input[@type='password']").send_keys('xxxx')
+        # driver.find_element_by_xpath("//div/input[@type='submit']").click()
+        # time.sleep(10)
+
+        driver.get(url_choice)
+        self.parseHtml(driver)
+    def workOn(self):
+        time.sleep(1)
+        baseurl = 'https://www.lagou.com/jobs/list_'
+        city = input('请输入城市：')
+        position = input('请输入职位：')
+        city_url = up.quote(city)
+        pos_url = up.quote(position)
+        # 经用户选择后的地址
+        url_choice = baseurl + pos_url + '?city=' + city_url
+
+        self.getHtml(url_choice)
+        self.cursor.close()
+        self.mysql_db.close()
+        self.mongo_db.close()
+
+if __name__ == '__main__':
+    #创建类对象
+    myspider = lagou_spider()
+    #程序执行
+    myspider.workOn()
